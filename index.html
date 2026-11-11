@@ -694,6 +694,7 @@ table.pt .lgd i.n{background:var(--ink)}
 .adz-h .adz-kpis>div{display:flex;align-items:baseline;gap:5px}
 .adz-h .adz-kpis label{display:inline;margin:0;font-size:9.5px}
 .adz-h .adz-kpis b{font-size:15px}
+.cmap{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin:10px 0}.cmap label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}.cmap select{width:100%}.cmap[hidden],.cmap label[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -737,18 +738,17 @@ table.pt .lgd i.n{background:var(--ink)}
 </dialog>
 <dialog id="csvDlg">
   <h3>Импорт проектов из CSV</h3>
-  <div class="frow"><input type="file" id="csvFile" accept=".csv,.tsv,.txt"><span style="color:var(--muted)">или вставьте таблицу ниже (можно прямо из Google Sheets)</span></div>
-  <textarea id="csvText" placeholder="Название&#9;Оценка, дни&#9;Дизайнер"></textarea>
-  <div class="frow">
-    <label><input type="checkbox" id="csvHdr" checked> первая строка — заголовки</label>
-    <label>Название <select id="cName"></select></label>
-    <label>Оценка (дни) <select id="cEst"></select></label>
-    <label>Дизайнер <select id="cDes"></select></label>
-    <label>Команда <select id="cTeam"></select></label>
-  </div>
-  <div class="frow">
-    <label>Режим <select id="csvMode"><option value="merge">Добавить новые, обновить оценки у совпадающих названий</option><option value="replace">Заменить весь список проектов</option></select></label>
-    <label><input type="checkbox" id="csvNewD" checked> создавать новых дизайнеров из столбца</label>
+  <div class="frow"><input type="file" id="csvFile" accept=".csv,.tsv,.txt"><span style="color:var(--muted)">затем укажите, из каких столбцов брать данные</span></div>
+  <textarea id="csvText" hidden></textarea>
+  <div class="cmap" id="csvMap" hidden>
+    <label>Название проекта<select id="mName"></select></label>
+    <label>Описание проекта<select id="mNote"></select></label>
+    <label>Инициатива<select id="mInit"></select></label>
+    <label>Статус<select id="mStat"></select></label>
+    <label>Команда<select id="mTeam"></select></label>
+    <label>Дизайнер<select id="mDes"></select></label>
+    <label id="mEstL"><span id="mEstT">Оценка, дни</span><select id="mEst"></select></label>
+    <label id="mEst2L">до столбца<select id="mEst2"></select></label>
   </div>
   <div class="prev" id="csvPrev"></div>
   <div class="dlgact"><button id="csvCancel">Отмена</button><button id="csvGo" class="primary">Импортировать</button></div>
@@ -1682,53 +1682,103 @@ function parseCSV(text){
   return out.filter(r=>r.some(c=>c.trim()));
 }
 const numOf = s => { const m=String(s||'').replace(',','.').match(/\d+(\.\d+)?/); return m?parseFloat(m[0]):0; };
-function csvRefresh(guess){
+// Импорт: пользователь указывает, из каких столбцов брать данные (по умолчанию угадывается по шапке)
+const NVS_ALIAS={'яна вискова':'Яна Брандт'};
+const STATUS_WORDS={'да':'id','кандидат':'cand','hold':'hold','нет':'no','не берем':'no','не берём':'no'};
+const statusOf=v=>{ const t=String(v||'').trim().toLowerCase(); if(STATUS_WORDS[t]) return STATUS_WORDS[t]; const k=Object.keys(ST).find(k=>k===t||ST[k].toLowerCase()===t); return k||'id'; };
+const colLetter=i=>(i>=26?String.fromCharCode(64+Math.floor(i/26)):'')+String.fromCharCode(65+i%26);
+const MAPS=[['#mName','name'],['#mNote','note'],['#mInit','init'],['#mStat','stat'],['#mTeam','team'],['#mDes','des'],['#mEst','est'],['#mEst2','est2']];
+let csvHead=[], csvBody=[];
+const mapKey='loadplanner.csvmap';
+function csvLoad(){
   rows=parseCSV($('#csvText').value);
-  const hdr=$('#csvHdr').checked, head=rows[0]||[], ncol=Math.max(0,...rows.map(r=>r.length));
-  if(guess){
-    const names=Array.from({length:ncol},(_,i)=>hdr&&head[i]?head[i].trim():'Колонка '+(i+1));
-    const opt=(extra)=>(extra?'<option value="-1">— нет —</option>':'')+names.map((n,i)=>`<option value="${i}">${esc(n)}</option>`).join('');
-    $('#cName').innerHTML=opt(); $('#cEst').innerHTML=opt(); $('#cDes').innerHTML=opt(true); $('#cTeam').innerHTML=opt(true);
-    const find=(re,def)=>{ const i=hdr?names.findIndex(n=>re.test(n)):-1; return i>=0?i:def; };
-    const body=rows.slice(hdr?1:0);
-    const numCol=names.findIndex((_,i)=>body.length&&body.slice(0,10).filter(r=>numOf(r[i])>0).length>=Math.min(3,body.length));
-    const nm=find(/проект|назв|name|задач|title|summary|тема/i,0);
-    $('#cName').value=nm;
-    $('#cEst').value=find(/оцен|дн|days|estimate|эстим|трудо/i, numCol>=0&&numCol!==nm?numCol:Math.min(1,ncol-1));
-    $('#cDes').value=find(/дизайн|исполн|assignee|designer|owner/i,-1);
-    $('#cTeam').value=find(/команд|team|squad/i,-1);
-  }
-  const ci=+$('#cName').value, ce=+$('#cEst').value, cd=+$('#cDes').value, ct=+$('#cTeam').value;
-  const items=rows.slice(hdr?1:0).map(r=>({name:(r[ci]||'').trim(),est:numOf(r[ce]),des:cd>=0?(r[cd]||'').trim():'',team:ct>=0?(r[ct]||'').trim():''})).filter(x=>x.name);
-  $('#csvPrev').innerHTML = items.length
-    ? `<table><tr><th>Проект</th><th>Оценка, дн</th><th>Дизайнер</th></tr>${items.slice(0,50).map(x=>`<tr><td>${esc(x.name)}</td><td>${x.est}</td><td>${esc(x.des)}</td></tr>`).join('')}</table>${items.length>50?`<div style="padding:4px 8px;color:var(--muted)">… и ещё ${items.length-50}</div>`:''}`
-    : '<div style="padding:10px;color:var(--muted)">Вставьте данные — здесь появится предпросмотр.</div>';
+  const h=Math.max(0,rows.findIndex(r=>r.some(c=>/название/i.test(c))));
+  csvHead=(rows[h]||[]).map(c=>c.trim()); csvBody=rows.slice(h+1);
+  const n=Math.max(csvHead.length,...csvBody.map(r=>r.length),0);
+  const cols=[]; for(let i=0;i<n;i++) if(csvHead[i]) cols.push(i);
+  const opts=none=>(none?'<option value="-1">— нет —</option>':'')+cols.map(i=>`<option value="${i}">${colLetter(i)} · ${esc(csvHead[i])}</option>`).join('');
+  MAPS.forEach(([id,k])=>{ $(id).innerHTML=opts(!['name','est','est2'].includes(k)); });
+  $('#mDes').insertAdjacentHTML('afterbegin','<option value="h">Столбцы с именами в шапке</option>');
+  $('#csvMap').hidden=!rows.length;
+  const find=re=>csvHead.findIndex(c=>re.test(c));
+  const tot=find(/тотал/i);
+  const v={name:Math.max(0,find(/название|проект/i)), note:find(/описани/i), init:find(/фокус|инициатив/i), stat:find(/берём|берем|статус/i), team:find(/команд/i),
+    des:tot>=0?'h':find(/дизайн|исполн/i), est:tot>=0?tot+1:find(/оцен/i), est2:tot>=0?tot+4:find(/оцен/i)};
+  try{
+    const sv=JSON.parse(localStorage.getItem(mapKey)||'null');
+    if(sv){
+      const by=t=>t==null?-1:csvHead.findIndex(c=>c===t);
+      ['name','note','init','stat','team','est','est2'].forEach(k=>{ if(k in sv){ const i=by(sv[k]); if(i>=0||sv[k]===null) v[k]=i; } });
+      if(sv.des==='h') v.des='h'; else if('des' in sv){ v.des=by(sv.des); }
+    }
+  }catch(e){}
+  MAPS.forEach(([id,k])=>{ $(id).value=String(v[k]); if($(id).value!==String(v[k])) $(id).selectedIndex=0; });
+  csvRefresh();
+}
+function csvItems(){
+  const ci=id=>+$(id).value, cell=(r,i)=>i>=0?(r[i]||'').trim():'', des=$('#mDes').value;
+  const cn=ci('#mName'), cNote=ci('#mNote'), cInit=ci('#mInit'), cSt=ci('#mStat'), cTm=ci('#mTeam');
+  const out=[];
+  csvBody.forEach(r=>{
+    const name=cell(r,cn); if(!name) return;
+    const base={name,note:cell(r,cNote),init:cell(r,cInit),team:cell(r,cTm),status:cSt>=0?statusOf(r[cSt]):'id'};
+    if(des==='h'){
+      let a=ci('#mEst'), b=ci('#mEst2'); if(b<a){ const t=a; a=b; b=t; }
+      const ests=[];
+      for(let c=a;c<=b;c++){ const d=csvHead[c]; if(d&&numOf(r[c])>0) ests.push({des:NVS_ALIAS[d.toLowerCase()]||d,est:numOf(r[c])}); }
+      if(!ests.length) out.push({...base,est:0,des:''}); else ests.forEach(x=>out.push({...base,...x}));
+    } else out.push({...base,est:numOf(r[ci('#mEst')]),des:cell(r,+des)});
+  });
+  return out;
+}
+function csvRefresh(){
+  const hd=$('#mDes').value==='h';
+  $('#mEst2L').hidden=!hd; $('#mEstT').textContent=hd?'Оценки: от столбца':'Оценка, дни';
+  if(!rows.length){ $('#csvPrev').innerHTML='<div style="padding:10px;color:var(--muted)">Выберите файл — здесь появится предпросмотр.</div>'; return []; }
+  const items=csvItems();
+  $('#csvPrev').innerHTML=items.length
+    ? `<div style="padding:8px 10px;color:var(--muted)">Проектов: ${new Set(items.map(x=>x.name)).size}, строк по дизайнерам: ${items.length}.</div><table><tr><th>Проект</th><th>Инициатива</th><th>Статус</th><th>Команда</th><th>Дизайнер</th><th>Оценка, дн</th></tr>${items.slice(0,60).map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.init)}</td><td>${ST[x.status]}</td><td>${esc(x.team)}</td><td>${esc(x.des||'—')}</td><td>${x.est}</td></tr>`).join('')}</table>${items.length>60?`<div style="padding:4px 8px;color:var(--muted)">… и ещё ${items.length-60}</div>`:''}`
+    : '<div style="padding:10px;color:var(--muted)">По выбранным столбцам проектов не нашлось.</div>';
   return items;
 }
-$('#btnCsv').onclick=()=>{ $('#csvDlg').showModal(); csvRefresh(true); };
+$('#btnCsv').onclick=()=>{ $('#csvText').value=''; $('#csvFile').value=''; csvLoad(); $('#csvDlg').showModal(); };
 $('#csvCancel').onclick=()=>$('#csvDlg').close();
-$('#csvText').oninput=()=>csvRefresh(true);
-$('#csvHdr').onchange=()=>csvRefresh(true);
-['#cName','#cEst','#cDes','#cTeam'].forEach(s=>$(s).onchange=()=>csvRefresh(false));
-$('#csvFile').onchange=e=>{ const f=e.target.files[0]; if(f) f.text().then(t=>{ $('#csvText').value=t; csvRefresh(true); }); };
+MAPS.forEach(([id])=>{ $(id).onchange=csvRefresh; });
+$('#csvFile').onchange=e=>{ const f=e.target.files[0]; if(f) f.text().then(t=>{ $('#csvText').value=t.replace(/^﻿/,''); csvLoad(); }); };
 $('#csvGo').onclick=()=>{
-  const items=csvRefresh(false); if(!items.length){ alert('Нет строк для импорта'); return; }
-  if($('#csvMode').value==='replace') state.projects=[];
+  const items=csvRefresh(); if(!items.length) return;
+  try{
+    const sv={}, hd=id=>{ const i=+$(id).value; return i>=0?csvHead[i]:null; };
+    sv.name=hd('#mName'); sv.note=hd('#mNote'); sv.init=hd('#mInit'); sv.stat=hd('#mStat'); sv.team=hd('#mTeam'); sv.est=hd('#mEst'); sv.est2=hd('#mEst2');
+    sv.des=$('#mDes').value==='h'?'h':hd('#mDes');
+    localStorage.setItem(mapKey,JSON.stringify(sv));
+  }catch(e){}
   items.forEach(it=>{
     let did=null;
     if(it.des){
       let d=state.designers.find(x=>x.name.toLowerCase()===it.des.toLowerCase());
-      if(!d&&$('#csvNewD').checked){ d={id:uid('d'),name:it.des,focus:0.7,marks:{}}; state.designers.push(d); }
-      if(d) did=d.id;
+      if(!d){ d={id:uid('d'),name:it.des,focus:0.7,marks:{}}; state.designers.push(d); }
+      did=d.id;
     }
     let tid='';
-    if(it.team){ let t=state.teams.find(x=>x.name.toLowerCase()===it.team.toLowerCase()); if(!t){ let g=state.groups[0]; if(!g){ g={id:uid('g'),name:'Импорт'}; state.groups.push(g); } t={id:uid('t'),name:it.team,group:g.id}; state.teams.push(t); } tid=t.id; }
-    const ex=state.projects.find(p=>p.name.toLowerCase()===it.name.toLowerCase());
-    if(ex){ ex.est=it.est; if(did) ex.designer=did; if(tid) ex.team=tid; }
-    else state.projects.push({id:uid('p'),name:it.name,est:it.est,designer:did,weeks:{},last:100,color:state.projects.length,team:tid,status:'id',deadline:'',gates:[],deadlines:[]});
+    if(it.team){
+      let t=state.teams.find(x=>x.name.toLowerCase()===it.team.toLowerCase());
+      if(!t){
+        const gp=it.team.split(' ')[0]; let g=state.groups.find(x=>x.name.toLowerCase()===gp.toLowerCase());
+        if(!g){ g={id:uid('g'),name:gp}; state.groups.push(g); }
+        t={id:uid('t'),name:it.team,group:g.id}; state.teams.push(t);
+      }
+      tid=t.id;
+    }
+    let iid='';
+    if(it.init){ let n=state.initiatives.find(x=>x.name.toLowerCase()===it.init.toLowerCase()); if(!n){ n={id:uid('i'),name:it.init}; state.initiatives.push(n); } iid=n.id; }
+    const ex=state.projects.find(p=>p.name.toLowerCase()===it.name.toLowerCase()&&(p.designer||null)===did);
+    if(ex){ ex.est=it.est; if(did) ex.designer=did; if(tid) ex.team=tid; ex.status=it.status; if(it.note) ex.note=it.note; if(iid) ex.initiative=iid; }
+    else state.projects.push({id:uid('p'),name:it.name,est:it.est,designer:did,weeks:{},last:100,color:state.projects.length,team:tid,status:it.status,deadline:'',gates:[],deadlines:[],note:it.note||'',comment:'',initiative:iid});
   });
   $('#csvDlg').close(); render();
 };
+
 
 // ================= Аналитика по кварталам =================
 const MS=864e5;
