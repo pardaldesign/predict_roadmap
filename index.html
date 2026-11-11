@@ -694,7 +694,9 @@ table.pt .lgd i.n{background:var(--ink)}
 .adz-h .adz-kpis>div{display:flex;align-items:baseline;gap:5px}
 .adz-h .adz-kpis label{display:inline;margin:0;font-size:9.5px}
 .adz-h .adz-kpis b{font-size:15px}
-.cmap{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin:10px 0}.cmap label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}.cmap select{width:100%}.cmap[hidden],.cmap label[hidden]{display:none}
+.cmap{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin:10px 0}.cmap label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}.cmap select{width:100%}.cmap.tgt{grid-template-columns:2fr 1fr 1fr}.cmap input{margin-top:4px}.cmap input[hidden]{display:none}.cmap[hidden],.cmap label[hidden]{display:none}
+.cmap select{-webkit-appearance:none;appearance:none;height:36px;padding:0 14px;padding-right:36px;color:var(--ink);background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%2385858c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E") no-repeat right 14px center}
+.cmap select.ph{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -740,6 +742,11 @@ table.pt .lgd i.n{background:var(--ink)}
   <h3>Импорт проектов из CSV</h3>
   <div class="frow"><input type="file" id="csvFile" accept=".csv,.tsv,.txt"><span style="color:var(--muted)">затем укажите, из каких столбцов брать данные</span></div>
   <textarea id="csvText" hidden></textarea>
+  <div class="cmap tgt" id="csvTgt" hidden>
+    <label>Направление<select id="tDir"><option value="">— не указано —</option><option>ВХ</option><option>НВС</option><option>Посутка</option><option value="__other">Другое…</option></select><input id="tDirNew" placeholder="Название направления" hidden></label>
+    <label>Квартал<select id="tQ"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+    <label>Год<select id="tY"></select></label>
+  </div>
   <div class="cmap" id="csvMap" hidden>
     <label>Название проекта<select id="mName"></select></label>
     <label>Описание проекта<select id="mNote"></select></label>
@@ -1032,7 +1039,7 @@ function renderPeriodBar(){
   $('#periodbar').innerHTML=`<div class="yr"><button data-a="yr" data-d="-1" title="Предыдущий год">‹</button><b>${y}</b><button data-a="yr" data-d="1" title="Следующий год">›</button></div>
     <div class="qseg">${[1,2,3,4].map(i=>`<button class="qbtn ${i===q?'on':''}" data-a="qtr" data-q="${i}">Q${i}${(y===cy&&i===cq)?'<i title="Текущий квартал"></i>':''}</button>`).join('')}</div>
     <button class="rangebtn ${(state.periods[keyOf(state.cur)]||{}).range?'on':''}" data-a="qrange" title="Задать даты старта и окончания квартала"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="11" rx="2"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/></svg>${dm(Q_START)} – ${dmy4(Q_END)}</button>
-    <div class="vsw"><button class="${view==='roadmap'?'on':''}" data-a="view" data-v="roadmap">Роадмап</button><button class="${view==='analytics'?'on':''}" data-a="view" data-v="analytics">Аналитика</button></div>
+    <div class="vsw"><button class="${view==='roadmap'?'on':''}" data-a="view" data-v="roadmap">Роадмап</button><button class="${view==='capacity'?'on':''}" data-a="view" data-v="capacity">Капасити</button><button class="${view==='analytics'?'on':''}" data-a="view" data-v="analytics">Аналитика</button></div>
     <span class="sp"></span>
     ${view==='roadmap'?`<span class="qchip ${meta.status}">${qLabel(keyOf(state.cur))} · ${stLabel(meta)}</span>
     ${meta.status==='planning'?'<button class="primary" data-a="qstart">Старт квартала</button>':meta.status==='active'?'<button data-a="qfinal">Завершить квартал</button>':''}`:''}`;
@@ -1681,6 +1688,7 @@ function parseCSV(text){
   row.push(cell); out.push(row);
   return out.filter(r=>r.some(c=>c.trim()));
 }
+const estOf = s => /^\s*\d+([.,]\d+)?\s*$/.test(String(s||'')) ? parseFloat(String(s).replace(',','.')) : 0;
 const numOf = s => { const m=String(s||'').replace(',','.').match(/\d+(\.\d+)?/); return m?parseFloat(m[0]):0; };
 // Импорт: пользователь указывает, из каких столбцов брать данные (по умолчанию угадывается по шапке)
 const NVS_ALIAS={'яна вискова':'Яна Брандт'};
@@ -1700,6 +1708,8 @@ function csvLoad(){
   MAPS.forEach(([id,k])=>{ $(id).innerHTML=opts(!['name','est','est2'].includes(k)); });
   $('#mDes').insertAdjacentHTML('afterbegin','<option value="h">Столбцы с именами в шапке</option>');
   $('#csvMap').hidden=!rows.length;
+  $('#csvTgt').hidden=!rows.length;
+  { const cy=state.cur.y; $('#tY').innerHTML=Array.from({length:Math.max(2040,cy)-Math.min(2024,cy)+1},(_,i)=>Math.min(2024,cy)+i).map(y=>`<option>${y}</option>`).join(''); $('#tY').value=String(cy); $('#tQ').value=String(state.cur.q); }
   const find=re=>csvHead.findIndex(c=>re.test(c));
   const tot=find(/тотал/i);
   const v={name:Math.max(0,find(/название|проект/i)), note:find(/описани/i), init:find(/фокус|инициатив/i), stat:find(/берём|берем|статус/i), team:find(/команд/i),
@@ -1712,9 +1722,11 @@ function csvLoad(){
       if(sv.des==='h') v.des='h'; else if('des' in sv){ v.des=by(sv.des); }
     }
   }catch(e){}
-  MAPS.forEach(([id,k])=>{ $(id).value=String(v[k]); if($(id).value!==String(v[k])) $(id).selectedIndex=0; });
+  MAPS.forEach(([id,k])=>{ $(id).value=String(v[k]); if($(id).value!==String(v[k])) $(id).selectedIndex=(k==='est2'||(k==='est'&&v.des==='h'))?$(id).options.length-1:0; });
+  try{ const d=localStorage.getItem('loadplanner.csvdir'); if(d!==null){ const o=[...$('#tDir').options].find(x=>x.value===d||x.text===d); if(o) $('#tDir').value=o.value; else { $('#tDir').value='__other'; $('#tDirNew').value=d; } } }catch(e){}
   csvRefresh();
 }
+const csvDir=()=>{ const v=$('#tDir').value; return v==='__other'?$('#tDirNew').value.trim():v; };
 function csvItems(){
   const ci=id=>+$(id).value, cell=(r,i)=>i>=0?(r[i]||'').trim():'', des=$('#mDes').value;
   const cn=ci('#mName'), cNote=ci('#mNote'), cInit=ci('#mInit'), cSt=ci('#mStat'), cTm=ci('#mTeam');
@@ -1725,14 +1737,16 @@ function csvItems(){
     if(des==='h'){
       let a=ci('#mEst'), b=ci('#mEst2'); if(b<a){ const t=a; a=b; b=t; }
       const ests=[];
-      for(let c=a;c<=b;c++){ const d=csvHead[c]; if(d&&numOf(r[c])>0) ests.push({des:NVS_ALIAS[d.toLowerCase()]||d,est:numOf(r[c])}); }
+      for(let c=a;c<=b;c++){ const d=csvHead[c]; if(d&&estOf(r[c])>0) ests.push({des:NVS_ALIAS[d.toLowerCase()]||d,est:estOf(r[c])}); }
       if(!ests.length) out.push({...base,est:0,des:''}); else ests.forEach(x=>out.push({...base,...x}));
-    } else out.push({...base,est:numOf(r[ci('#mEst')]),des:cell(r,+des)});
+    } else out.push({...base,est:estOf(r[ci('#mEst')]),des:cell(r,+des)});
   });
   return out;
 }
 function csvRefresh(){
+  document.querySelectorAll('#csvDlg .cmap select').forEach(el=>el.classList.toggle('ph',el.value===''||el.value==='-1'));
   const hd=$('#mDes').value==='h';
+  $('#tDirNew').hidden=$('#tDir').value!=='__other';
   $('#mEst2L').hidden=!hd; $('#mEstT').textContent=hd?'Оценки: от столбца':'Оценка, дни';
   if(!rows.length){ $('#csvPrev').innerHTML='<div style="padding:10px;color:var(--muted)">Выберите файл — здесь появится предпросмотр.</div>'; return []; }
   const items=csvItems();
@@ -1744,6 +1758,7 @@ function csvRefresh(){
 $('#btnCsv').onclick=()=>{ $('#csvText').value=''; $('#csvFile').value=''; csvLoad(); $('#csvDlg').showModal(); };
 $('#csvCancel').onclick=()=>$('#csvDlg').close();
 MAPS.forEach(([id])=>{ $(id).onchange=csvRefresh; });
+$('#tDir').onchange=csvRefresh; $('#tDirNew').oninput=csvRefresh;
 $('#csvFile').onchange=e=>{ const f=e.target.files[0]; if(f) f.text().then(t=>{ $('#csvText').value=t.replace(/^﻿/,''); csvLoad(); }); };
 $('#csvGo').onclick=()=>{
   const items=csvRefresh(); if(!items.length) return;
@@ -1751,8 +1766,9 @@ $('#csvGo').onclick=()=>{
     const sv={}, hd=id=>{ const i=+$(id).value; return i>=0?csvHead[i]:null; };
     sv.name=hd('#mName'); sv.note=hd('#mNote'); sv.init=hd('#mInit'); sv.stat=hd('#mStat'); sv.team=hd('#mTeam'); sv.est=hd('#mEst'); sv.est2=hd('#mEst2');
     sv.des=$('#mDes').value==='h'?'h':hd('#mDes');
-    localStorage.setItem(mapKey,JSON.stringify(sv));
+    localStorage.setItem(mapKey,JSON.stringify(sv)); localStorage.setItem('loadplanner.csvdir',csvDir());
   }catch(e){}
+  { const y=+$('#tY').value, q=+$('#tQ').value; if(y!==state.cur.y||q!==state.cur.q){ state.cur={y,q}; setPeriod(y,q); } }
   items.forEach(it=>{
     let did=null;
     if(it.des){
@@ -1773,8 +1789,8 @@ $('#csvGo').onclick=()=>{
     let iid='';
     if(it.init){ let n=state.initiatives.find(x=>x.name.toLowerCase()===it.init.toLowerCase()); if(!n){ n={id:uid('i'),name:it.init}; state.initiatives.push(n); } iid=n.id; }
     const ex=state.projects.find(p=>p.name.toLowerCase()===it.name.toLowerCase()&&(p.designer||null)===did);
-    if(ex){ ex.est=it.est; if(did) ex.designer=did; if(tid) ex.team=tid; ex.status=it.status; if(it.note) ex.note=it.note; if(iid) ex.initiative=iid; }
-    else state.projects.push({id:uid('p'),name:it.name,est:it.est,designer:did,weeks:{},last:100,color:state.projects.length,team:tid,status:it.status,deadline:'',gates:[],deadlines:[],note:it.note||'',comment:'',initiative:iid});
+    if(ex){ ex.est=it.est; if(did) ex.designer=did; if(tid) ex.team=tid; ex.status=it.status; if(it.note) ex.note=it.note; if(iid) ex.initiative=iid; if(csvDir()) ex.direction=csvDir(); }
+    else state.projects.push({id:uid('p'),name:it.name,est:it.est,designer:did,weeks:{},last:100,color:state.projects.length,team:tid,status:it.status,deadline:'',gates:[],deadlines:[],note:it.note||'',comment:'',initiative:iid,direction:csvDir()});
   });
   $('#csvDlg').close(); render();
 };
@@ -1783,7 +1799,7 @@ $('#csvGo').onclick=()=>{
 // ================= Аналитика по кварталам =================
 const MS=864e5;
 let view='roadmap';
-try{ view=localStorage.getItem('loadplanner.view')||'roadmap'; }catch(e){}
+try{ view=localStorage.getItem('loadplanner.view')||'roadmap'; if(!['roadmap','capacity','analytics'].includes(view)) view='roadmap'; }catch(e){}
 function parseKey(k){ const m=/^(\d+)-Q(\d)$/.exec(k); return {y:+m[1],q:+m[2]}; }
 function qLabel(k){ const c=parseKey(k); return `Q${c.q}'${String(c.y).slice(2)}`; }
 function calFor(c){
@@ -1817,7 +1833,7 @@ function snapshotFor(key){
   });
   const byId=Object.fromEntries(P.map(x=>[x.id,x])), hasKids=new Set(P.filter(x=>x.parent).map(x=>x.parent));
   const pr=P.map(p=>{ const par=p.parent&&byId[p.parent], t=state.teams.find(x=>x.id===(par?par.team:p.team)), tg=t&&state.groups.find(x=>x.id===t.group);
-    return {id:p.id,name:p.name,designer:p.designer,team:t?t.name:'',tgroup:tg?tg.name:'',status:p.status,est:+p.est||0,weeks:{...p.weeks},deadline:p.deadline||'',deadlines:[...(p.deadlines||[])],gates:(p.gates||[]).filter(g=>g.from&&g.to).map(g=>({type:g.type,from:g.from,to:g.to})),initiative:initName(par?par.initiative:p.initiative),comment:p.comment||'',parent:par?par.id:'',pstatus:par?par.status:'',leaf:!!par||!hasKids.has(p.id)}; });
+    return {id:p.id,name:p.name,designer:p.designer,team:t?t.name:'',tgroup:tg?tg.name:'',status:p.status,est:+p.est||0,weeks:{...p.weeks},deadline:p.deadline||'',deadlines:[...(p.deadlines||[])],gates:(p.gates||[]).filter(g=>g.from&&g.to).map(g=>({type:g.type,from:g.from,to:g.to})),initiative:initName(par?par.initiative:p.initiative),dir:p.direction||(par&&par.direction)||'',comment:p.comment||'',parent:par?par.id:'',pstatus:par?par.status:'',leaf:!!par||!hasKids.has(p.id)}; });
   return {at:new Date().toISOString(),designers:ds,projects:pr};
 }
 function planDaysFor(cal,marks,wm,upTo){
@@ -1932,7 +1948,7 @@ function buildReport(key){
       }
       const r=pn&&inNowHere?pn:pb;
       const spj=(pn||pb), parj=spj.parent&&((now.projects.find(x=>x.id===spj.parent))||(base&&base.projects.find(x=>x.id===spj.parent)));
-      rows.push({pid,late:(()=>{ const dl=(pn||pb).deadline; return !!(dl&&inNowHere&&Object.keys(pn.weeks).some(w=>cal.weeks[w]&&pn.weeks[w]>0&&cal.weeks[w][0].iso>dl)); })(),isNew:!!base&&!pb&&!!pn,leaf:spj.leaf!==false,sub:!!spj.parent,parentName:parj?parj.name:'',name:r.name,team:r.team,tgroup:r.tgroup,init:r.initiative||'',comment:(pn||pb).comment||'',deadline:(pn||pb).deadline,dlsStr:dlStr(pn||pb),gatesStr:gatesStr(pn||pb),
+      rows.push({pid,late:(()=>{ const dl=(pn||pb).deadline; return !!(dl&&inNowHere&&Object.keys(pn.weeks).some(w=>cal.weeks[w]&&pn.weeks[w]>0&&cal.weeks[w][0].iso>dl)); })(),isNew:!!base&&!pb&&!!pn,leaf:spj.leaf!==false,sub:!!spj.parent,parentName:parj?parj.name:'',name:r.name,team:r.team,tgroup:r.tgroup,init:r.initiative||'',dir:r.dir||'',comment:(pn||pb).comment||'',deadline:(pn||pb).deadline,dlsStr:dlStr(pn||pb),gatesStr:gatesStr(pn||pb),
         stB:inBaseHere?pb.status:null, stN:inNowHere?pn.status:(pn?pn.status:null), gone:!pn,
         estB:inBaseHere?pb.est:null, estN:inNowHere?pn.est:null, planB,planN,capB,capN,spent,estCnt,tags,
         wB:inBaseHere?pb.weeks:null, wN:inNowHere?pn.weeks:null});
@@ -2259,10 +2275,10 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeClr(); });
 
 // --- интерфейс аналитики ---
 function applyView(){
-  const an=view==='analytics';
+  const an=view==='analytics', cp=view==='capacity';
   $('#hero').style.display=an?'none':'';
-  $('#secCap').style.display=an?'none':'';
-  document.querySelector('section.tl').style.display=an?'none':'';
+  $('#secCap').style.display=cp?'':'none';
+  document.querySelector('section.tl').style.display=view==='roadmap'?'':'none';
   $('#analytics').style.display=an?'':'none';
 }
 function stLabel(m){ return m.status==='active'?`В работе с ${dmyTs(m.startedAt)}`:m.status==='final'?`Завершён ${dmyTs(m.finalizedAt)}`:'План не зафиксирован'; }
@@ -2299,7 +2315,7 @@ function renderAnalytics(){
       const counted=!r.gone&&WORK.has(r.stN)&&r.leaf, rest=Math.max(0,r.planN-r.spent), startPlan=hasBase&&r.stB&&WORK.has(r.stB)?r.planB:r.planN;
       const planCell=r.gone?'—':(counted?`<b>${fmt(startPlan)}</b> дн`:(r.leaf?'<span class="muted">не в капасити</span>':`<b>${fmt(startPlan)}</b> дн<small>сумма подзадач</small>`));
       const restCell=r.gone?'—':(counted||!r.leaf?(left=>left<0?`<b style="color:var(--red)">−${fmt(-left)}</b> дн<small style="color:var(--red)">превышение плана</small>`:`<b>${fmt(left)}</b> дн`)(startPlan-r.spent):'<span class="muted">—</span>');
-      return `<tr class="${r.gone?'gone':''}"><td class="pn">${r.sub?'<span class="subarrow">↳</span> ':''}${esc(r.name)}${r.sub&&r.parentName?`<small class="ini">тема: ${esc(r.parentName)}</small>`:''}${r.init?`<small class="ini">${esc(r.init)}</small>`:''}${r.tags.map(x=>`<span class="atag ${TAGCLS[x[0]]}">${esc(x[1])}</span>`).join('')}</td>
+      return `<tr class="${r.gone?'gone':''}"><td class="pn">${r.sub?'<span class="subarrow">↳</span> ':''}${esc(r.name)}${r.sub&&r.parentName?`<small class="ini">тема: ${esc(r.parentName)}</small>`:''}${r.dir?`<small class="ini">Направление: ${esc(r.dir)}</small>`:''}${r.init?`<small class="ini">${esc(r.init)}</small>`:''}${r.tags.map(x=>`<span class="atag ${TAGCLS[x[0]]}">${esc(x[1])}</span>`).join('')}</td>
         <td>${esc(r.team||'—')}</td><td class="cap">${planCell}</td><td class="cap">${restCell}</td><td>${stepperHTML(r.stB,r.stN,hasBase,r.gone)}</td></tr>`;
     }).join('')||'<tr><td colspan="5" class="muted">Проектов нет</td></tr>';
     const ai=(m.status==='final'&&m.analysis&&m.analysis[d.id])||d.analysis||[];
